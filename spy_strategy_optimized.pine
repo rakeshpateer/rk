@@ -1,0 +1,200 @@
+//@version=5
+indicator(title="SPY Strategy - Optimized", shorttitle="SPY-OPT", overlay=true)
+
+// ============================================================================
+// INPUT CONTROLS - Grouped and optimized
+// ============================================================================
+strategy_enabled = input.bool(true, "🎯 Enable Strategy", group="Main Controls")
+market_env = input.string("Bull Market Only", "📈 Market Environment", 
+                         options=["Bull Market Only", "Bear Market Only", "Both Markets"], 
+                         group="Main Controls")
+
+enable_ma_filter = input.bool(false, "🔧 Enable MA Filter", group="SPY Filters")
+min_candles_after_cross = input.int(3, "📊 Min Candles After Cross", minval=1, maxval=20, group="SPY Filters")
+min_crossover_distance = input.float(0.3, "📏 Min Cross Distance %", minval=0.1, maxval=2.0, group="SPY Filters")
+
+min_gap_size = input.float(0.2, "📉 Min GAP Size %", minval=0.05, maxval=1.0, group="GAP Settings")
+max_gap_size = input.float(1.5, "📈 Max GAP Size %", minval=1.0, maxval=3.0, group="GAP Settings")
+
+show_control_panel = input.bool(true, "📋 Show Control Panel", group="Display")
+show_mas = input.bool(true, "📊 Show Moving Averages", group="Display")
+show_signals = input.bool(true, "🎯 Show Signals", group="Display")
+
+// ============================================================================
+// CACHED CALCULATIONS - Calculate once, use multiple times
+// ============================================================================
+// Pre-calculate NaN checks to avoid repetition
+valid_current_data = not na(close) and not na(open)
+valid_previous_data = not na(close[1]) and not na(open[1]) and close[1] > 0
+
+// Moving averages with early termination for display
+ma20 = show_mas or enable_ma_filter ? ta.sma(close, 20) : na
+ma40 = show_mas or enable_ma_filter ? ta.sma(close, 40) : na
+ma100 = show_mas ? ta.sma(close, 100) : na
+ma200 = show_mas ? ta.sma(close, 200) : na
+
+// ============================================================================
+// OPTIMIZED MARKET ENVIRONMENT DETECTION
+// ============================================================================
+// Combined bull/bear market detection with single comparison
+bull_market = show_mas and ma40 > ma100 and ma100 > ma200
+bear_market = show_mas and ma200 > ma100 and ma100 > ma40
+
+// Optimized environment check using switch-like logic
+environment_ok = switch market_env
+    "Bull Market Only" => bull_market
+    "Bear Market Only" => bear_market
+    => bull_market or bear_market
+
+// ============================================================================
+// OPTIMIZED MA CROSSOVER FILTER
+// ============================================================================
+// Only calculate if filter is enabled
+cross_up = enable_ma_filter ? ta.crossover(ma20, ma40) : false
+cross_down = enable_ma_filter ? ta.crossunder(ma20, ma40) : false
+any_cross = cross_up or cross_down
+
+// Optimized candle counting
+var int candles_since_crossover = 0
+candles_since_crossover := any_cross ? 0 : candles_since_crossover + 1
+
+// Calculate distance only when needed
+cross_distance_pct = enable_ma_filter and ma40 > 0 ? math.abs(ma20 - ma40) / ma40 * 100 : 0.0
+
+// Pre-calculate conditions
+candles_condition = candles_since_crossover >= min_candles_after_cross
+distance_condition = cross_distance_pct >= min_crossover_distance
+ma_filter_ok = not enable_ma_filter or (candles_condition and distance_condition)
+
+// ============================================================================
+// OPTIMIZED GAP DETECTION
+// ============================================================================
+// Single-pass gap detection with early exit
+gap_size_pct = 0.0
+gap_down_detected = valid_previous_data and open < close[1] ? 
+    (gap_size_pct := (close[1] - open) / close[1] * 100, 
+     gap_size_pct >= min_gap_size and gap_size_pct <= max_gap_size) : false
+
+// ============================================================================
+// OPTIMIZED CANDLE PATTERN VALIDATION
+// ============================================================================
+// Combined green candle check with cached validation
+current_green = valid_current_data and close > open
+previous_green = valid_previous_data and close[1] > open[1]
+green_candles_ok = current_green and previous_green
+
+// ============================================================================
+// SIGNAL GENERATION - Single boolean calculation
+// ============================================================================
+call_signal = strategy_enabled and environment_ok and ma_filter_ok and gap_down_detected and green_candles_ok
+
+// ============================================================================
+// OPTIMIZED PLOTTING - Conditional execution
+// ============================================================================
+// Plot MAs only when needed
+if show_mas
+    plot(ma20, "MA20", color.blue, 1)
+    plot(ma40, "MA40", color.orange, 2)
+    plot(ma100, "MA100", color.green, 1)
+    plot(ma200, "MA200", color.red, 1)
+
+// Conditional visual signals
+if show_signals
+    plotshape(call_signal, "CALL Signal", location.belowbar, shape.triangleup, 
+              size.normal, color.lime, text="CALL")
+
+// Background highlight
+bgcolor(gap_down_detected ? color.new(color.red, 85) : na, "GAP Day")
+
+// ============================================================================
+// OPTIMIZED CONTROL PANEL - Reduced string operations
+// ============================================================================
+if barstate.islast and show_control_panel
+    var table info_table = table.new(position.top_right, 2, 12, 
+                                     bgcolor=color.white, border_width=1,
+                                     frame_color=color.gray, frame_width=1)
+
+    table.clear(info_table)
+
+    // Pre-calculated colors and texts
+    green_color = color.green
+    red_color = color.red
+    orange_color = color.orange
+    gray_color = color.gray
+    navy_color = color.navy
+
+    pass_text = "✅ PASS"
+    fail_text = "❌ FAIL"
+    on_text = "✅ ON"
+    off_text = "❌ OFF"
+
+    // Header
+    table.cell(info_table, 0, 0, "COMPONENT", color.white, navy_color, size.small)
+    table.cell(info_table, 1, 0, "STATUS", color.white, navy_color, size.small)
+
+    // Optimized table population using arrays
+    labels = array.from("Strategy", "Market Type", "Env Filter", "MA Filter", 
+                       "Candles Since", "Cross Dist %", "MA Filter OK", 
+                       "GAP Down", "GAP Size %", "Green Candles", "🎯 SIGNAL")
+
+    values = array.from(
+        strategy_enabled ? on_text : off_text,
+        bull_market ? "🐂 BULL" : bear_market ? "🐻 BEAR" : "➖ NEUTRAL",
+        environment_ok ? pass_text : fail_text,
+        enable_ma_filter ? "🔧 ON" : "⚫️ OFF",
+        str.tostring(candles_since_crossover),
+        str.tostring(math.round(cross_distance_pct, 2)),
+        ma_filter_ok ? pass_text : fail_text,
+        gap_down_detected ? "✅ YES" : "❌ NO",
+        str.tostring(math.round(gap_size_pct, 3)),
+        green_candles_ok ? "✅ YES" : "❌ NO",
+        call_signal ? "🟢 CALL" : "⚫️ WAIT"
+    )
+
+    colors = array.from(
+        strategy_enabled ? green_color : red_color,
+        bull_market ? green_color : bear_market ? red_color : gray_color,
+        environment_ok ? green_color : red_color,
+        enable_ma_filter ? color.blue : gray_color,
+        candles_condition ? green_color : orange_color,
+        distance_condition ? green_color : orange_color,
+        ma_filter_ok ? green_color : red_color,
+        gap_down_detected ? green_color : red_color,
+        color.purple,
+        green_candles_ok ? green_color : red_color,
+        color.white
+    )
+
+    // Populate table efficiently
+    for i = 0 to 10
+        table.cell(info_table, 0, i + 1, array.get(labels, i), color.black)
+        if i == 10
+            table.cell(info_table, 1, i + 1, array.get(values, i), color.white, 
+                      call_signal ? color.lime : gray_color)
+        else
+            table.cell(info_table, 1, i + 1, array.get(values, i), array.get(colors, i))
+
+// ============================================================================
+// OPTIMIZED ALERTS - Conditional execution
+// ============================================================================
+alertcondition(call_signal, "SPY CALL Signal", "🚨 SPY GAP Strategy: CALL Signal!")
+alertcondition(gap_down_detected, "SPY GAP Down", "📉 SPY GAP Down Detected!")
+alertcondition(any_cross, "SPY MA Cross", "🔄 SPY MA20/MA40 Crossover!")
+
+// ============================================================================
+// OPTIMIZED DATA WINDOW - Minimal plotting
+// ============================================================================
+// Combine boolean plots to reduce plot calls
+signal_plot = call_signal ? 100 : environment_ok ? 50 : ma_filter_ok ? 25 : 0
+plot(signal_plot, "Combined Signals", color.lime, display=display.data_window)
+plot(gap_size_pct, "GAP Size %", color.red, display=display.data_window)
+plot(cross_distance_pct, "Cross Distance %", color.blue, display=display.data_window)
+
+// ============================================================================
+// OPTIMIZED PERFORMANCE METRICS
+// ============================================================================
+var int total_signals = 0
+if call_signal and barstate.isconfirmed
+    total_signals += 1
+
+plot(total_signals, "Total Signals", color.navy, display=display.data_window)
