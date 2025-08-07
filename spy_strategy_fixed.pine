@@ -1,0 +1,302 @@
+//@version=5
+indicator(title="SPY devp rkk - Complete Fixed", shorttitle="SPYdevep RKK", overlay=true) 
+
+// ============================================================================
+// INPUT CONTROLS
+// ============================================================================
+
+// Main Strategy Toggle
+strategy_enabled = input.bool(true, title="🎯 Enable Strategy", group="Main Controls")
+
+// Market Environment Selection
+market_env = input.string("Bull Market Only", title="📈 Market Environment", 
+                         options=["Bull Market Only", "Bear Market Only", "Both Markets"], 
+                         group="Market Environment")
+
+// SPY Filter Controls
+enable_ma_filter = input.bool(false, title="🔧 Enable MA Crossover Filter", group="SPY Filters")
+min_candles_after_cross = input.int(3, title="📊 Min Candles After Crossover", minval=1, maxval=20, group="SPY Filters")
+min_crossover_distance = input.float(0.3, title="📏 Min Crossover Distance %", minval=0.1, maxval=2.0, group="SPY Filters")
+
+// GAP Settings
+min_gap_size = input.float(0.2, title="📉 Minimum GAP Size %", minval=0.05, maxval=1.0, group="GAP Settings")
+max_gap_size = input.float(1.5, title="📈 Maximum GAP Size %", minval=1.0, maxval=3.0, group="GAP Settings")
+
+// Display Options
+show_control_panel = input.bool(true, title="📋 Show Control Panel", group="Display")
+show_mas = input.bool(true, title="📊 Show Moving Averages", group="Display")
+show_signals = input.bool(true, title="🎯 Show Signals", group="Display")
+
+// ============================================================================
+// MOVING AVERAGES CALCULATION
+// ============================================================================
+
+ma20 = ta.sma(close, 20)
+ma40 = ta.sma(close, 40) 
+ma100 = ta.sma(close, 100)
+ma200 = ta.sma(close, 200)
+
+// Plot MAs with conditional display
+plot(show_mas ? ma20 : na, "MA20", color.blue, 1)
+plot(show_mas ? ma40 : na, "MA40", color.orange, 2)
+plot(show_mas ? ma100 : na, "MA100", color.green, 1)
+plot(show_mas ? ma200 : na, "MA200", color.red, 1)
+
+// ============================================================================
+// MARKET ENVIRONMENT DETECTION
+// ============================================================================
+
+// Bull Market: MA40 > MA100 > MA200
+bull_market = ma40 > ma100 and ma100 > ma200
+
+// Bear Market: MA200 > MA100 > MA40  
+bear_market = ma200 > ma100 and ma100 > ma40
+
+// Environment Check
+environment_ok = market_env == "Bull Market Only" ? bull_market : 
+                 market_env == "Bear Market Only" ? bear_market : 
+                 (bull_market or bear_market)
+
+// ============================================================================
+// MA CROSSOVER FILTER
+// ============================================================================
+
+// Detect crossovers
+cross_up = ta.crossover(ma20, ma40)    
+cross_down = ta.crossunder(ma20, ma40)  
+any_cross = cross_up or cross_down
+
+// Count candles since last crossover
+var int candles_since_crossover = 0
+if any_cross
+    candles_since_crossover := 0
+else
+    candles_since_crossover := candles_since_crossover + 1
+
+// Calculate crossover distance with safety check
+cross_distance_pct = ma40 > 0 ? math.abs(ma20 - ma40) / ma40 * 100 : 0.0
+
+// MA Filter validation
+candles_condition = candles_since_crossover >= min_candles_after_cross
+distance_condition = cross_distance_pct >= min_crossover_distance
+ma_filter_ok = not enable_ma_filter or (candles_condition and distance_condition)
+
+// ============================================================================
+// GAP DETECTION (FIXED)
+// ============================================================================
+
+// Initialize GAP variables
+gap_down_detected = false
+gap_size_pct = 0.0
+
+// Calculate GAP Down with proper validation - Fixed logic
+if barstate.isconfirmed and not na(close[1]) and close[1] > 0 and not na(open)
+    if open < close[1]
+        gap_size_pct := (close[1] - open) / close[1] * 100
+        gap_down_detected := gap_size_pct >= min_gap_size and gap_size_pct <= max_gap_size
+
+// ============================================================================
+// CANDLE PATTERN VALIDATION (IMPROVED)
+// ============================================================================
+
+// Check for 2 consecutive green candles with better validation
+current_green = not na(close) and not na(open) and close > open
+previous_green = not na(close[1]) and not na(open[1]) and close[1] > open[1]
+green_candles_ok = current_green and previous_green
+
+// Additional validation: ensure we have sufficient price movement
+min_candle_body = 0.05  // Minimum 0.05% body size
+current_body_pct = not na(close) and not na(open) and close > 0 ? math.abs(close - open) / close * 100 : 0
+previous_body_pct = not na(close[1]) and not na(open[1]) and close[1] > 0 ? math.abs(close[1] - open[1]) / close[1] * 100 : 0
+sufficient_body = current_body_pct >= min_candle_body and previous_body_pct >= min_candle_body
+
+// Final green candles validation
+green_candles_final = green_candles_ok and sufficient_body
+
+// ============================================================================
+// FINAL SIGNAL GENERATION (IMPROVED)
+// ============================================================================
+
+// All conditions must be true for CALL signal
+// Added barstate.isconfirmed to prevent repainting
+call_signal = strategy_enabled and 
+              environment_ok and 
+              ma_filter_ok and 
+              gap_down_detected and 
+              green_candles_final and
+              barstate.isconfirmed
+
+// ============================================================================
+// VISUAL SIGNALS
+// ============================================================================
+
+// Plot CALL signal with improved visibility
+plotshape(call_signal and show_signals, 
+         title="CALL Signal", 
+         location=location.belowbar, 
+         style=shape.triangleup, 
+         size=size.normal, 
+         color=color.lime,
+         text="CALL")
+
+// Background highlight for GAP days
+bgcolor(gap_down_detected ? color.new(color.red, 85) : na, title="GAP Day")
+
+// ============================================================================
+// CONTROL PANEL TABLE (FIXED)
+// ============================================================================
+
+if barstate.islast and show_control_panel
+    var table info_table = table.new(position.top_right, 2, 13,
+                                     bgcolor=color.white, 
+                                     border_width=1,
+                                     frame_color=color.gray,
+                                     frame_width=1)
+
+    // Clear table properly
+    if not na(info_table)
+        table.clear(info_table)
+
+        // Header row
+        table.cell(info_table, 0, 0, "COMPONENT", 
+                  text_color=color.white, bgcolor=color.navy, text_size=size.small)
+        table.cell(info_table, 1, 0, "STATUS", 
+                  text_color=color.white, bgcolor=color.navy, text_size=size.small)
+
+        // Strategy status
+        table.cell(info_table, 0, 1, "Strategy", text_color=color.black)
+        table.cell(info_table, 1, 1, strategy_enabled ? "✅ ON" : "❌ OFF", 
+                  text_color=strategy_enabled ? color.green : color.red)
+
+        // Market environment
+        table.cell(info_table, 0, 2, "Market Type", text_color=color.black)
+        market_status = bull_market ? "🐂 BULL" : bear_market ? "🐻 BEAR" : "➖ NEUTRAL"
+        market_color = bull_market ? color.green : bear_market ? color.red : color.gray
+        table.cell(info_table, 1, 2, market_status, text_color=market_color)
+
+        // Environment filter
+        table.cell(info_table, 0, 3, "Env Filter", text_color=color.black)
+        table.cell(info_table, 1, 3, environment_ok ? "✅ PASS" : "❌ FAIL", 
+                  text_color=environment_ok ? color.green : color.red)
+
+        // MA Filter status
+        table.cell(info_table, 0, 4, "MA Filter", text_color=color.black)
+        table.cell(info_table, 1, 4, enable_ma_filter ? "🔧 ON" : "⚫️ OFF", 
+                  text_color=enable_ma_filter ? color.blue : color.gray)
+
+        // Candles since crossover
+        table.cell(info_table, 0, 5, "Candles Since", text_color=color.black)
+        table.cell(info_table, 1, 5, str.tostring(candles_since_crossover), 
+                  text_color=candles_condition ? color.green : color.orange)
+
+        // Cross distance
+        table.cell(info_table, 0, 6, "Cross Dist %", text_color=color.black)
+        table.cell(info_table, 1, 6, str.tostring(math.round(cross_distance_pct, 2)), 
+                  text_color=distance_condition ? color.green : color.orange)
+
+        // MA filter result
+        table.cell(info_table, 0, 7, "MA Filter OK", text_color=color.black)
+        table.cell(info_table, 1, 7, ma_filter_ok ? "✅ PASS" : "❌ FAIL", 
+                  text_color=ma_filter_ok ? color.green : color.red)
+
+        // GAP detection
+        table.cell(info_table, 0, 8, "GAP Down", text_color=color.black)
+        table.cell(info_table, 1, 8, gap_down_detected ? "✅ YES" : "❌ NO", 
+                  text_color=gap_down_detected ? color.green : color.red)
+
+        // GAP size
+        table.cell(info_table, 0, 9, "GAP Size %", text_color=color.black)
+        table.cell(info_table, 1, 9, str.tostring(math.round(gap_size_pct, 3)), 
+                  text_color=color.purple)
+
+        // Green candles
+        table.cell(info_table, 0, 10, "Green Candles", text_color=color.black)
+        table.cell(info_table, 1, 10, green_candles_final ? "✅ YES" : "❌ NO", 
+                  text_color=green_candles_final ? color.green : color.red)
+
+        // Candle body validation
+        table.cell(info_table, 0, 11, "Body Size OK", text_color=color.black)
+        table.cell(info_table, 1, 11, sufficient_body ? "✅ YES" : "❌ NO", 
+                  text_color=sufficient_body ? color.green : color.red)
+
+        // Final signal
+        table.cell(info_table, 0, 12, "🎯 SIGNAL", text_color=color.white, bgcolor=color.navy)
+        final_signal_text = call_signal ? "🟢 CALL" : "⚫️ WAIT"
+        final_signal_color = call_signal ? color.lime : color.gray
+        table.cell(info_table, 1, 12, final_signal_text, text_color=color.white, bgcolor=final_signal_color)
+
+// ============================================================================
+// ALERTS SYSTEM (IMPROVED)
+// ============================================================================
+
+// Alert conditions with improved logic
+if call_signal and barstate.isconfirmed
+    alert("🚨 SPY GAP Strategy: CALL Signal Generated! GAP: " + str.tostring(math.round(gap_size_pct, 2)) + "%", alert.freq_once_per_bar)
+
+if gap_down_detected and barstate.isconfirmed
+    alert("📉 SPY GAP Down Detected! Size: " + str.tostring(math.round(gap_size_pct, 2)) + "%", alert.freq_once_per_bar)
+
+if any_cross and barstate.isconfirmed
+    cross_type = cross_up ? "Golden Cross" : "Death Cross"
+    alert("🔄 SPY MA20/MA40 " + cross_type + " Detected!", alert.freq_once_per_bar)
+
+// Legacy alertcondition for compatibility
+alertcondition(call_signal, title="SPY GAP CALL Signal", message="🚨 SPY GAP Strategy: CALL Signal Generated!")
+
+// ============================================================================
+// DATA WINDOW PLOTS (ORGANIZED)
+// ============================================================================
+
+// Main signal plots
+plot(call_signal ? 100 : 0, "CALL Signal", color.lime, display=display.data_window)
+plot(gap_size_pct, "GAP Size %", color.red, display=display.data_window)
+
+// Technical analysis plots
+plot(cross_distance_pct, "Cross Distance %", color.blue, display=display.data_window)
+plot(candles_since_crossover, "Candles Since Cross", color.orange, display=display.data_window)
+
+// Status plots
+plot(environment_ok ? 100 : 0, "Environment OK", color.green, display=display.data_window)
+plot(ma_filter_ok ? 100 : 0, "MA Filter OK", color.purple, display=display.data_window)
+plot(green_candles_final ? 100 : 0, "Green Candles OK", color.yellow, display=display.data_window)
+
+// Body size validation plots
+plot(current_body_pct, "Current Body %", color.aqua, display=display.data_window)
+plot(previous_body_pct, "Previous Body %", color.fuchsia, display=display.data_window)
+
+// ============================================================================
+// PERFORMANCE METRICS (ENHANCED)
+// ============================================================================
+
+// Count total signals for reference
+var int total_signals = 0
+var int total_gaps = 0
+var int total_crosses = 0
+
+if call_signal and barstate.isconfirmed
+    total_signals := total_signals + 1
+
+if gap_down_detected and barstate.isconfirmed
+    total_gaps := total_gaps + 1
+
+if any_cross and barstate.isconfirmed
+    total_crosses := total_crosses + 1
+
+// Display counts in data window
+plot(total_signals, "Total Signals", color.navy, display=display.data_window)
+plot(total_gaps, "Total Gaps", color.maroon, display=display.data_window)
+plot(total_crosses, "Total Crosses", color.teal, display=display.data_window)
+
+// Calculate signal efficiency (signals per gaps)
+signal_efficiency = total_gaps > 0 ? total_signals / total_gaps * 100 : 0
+plot(signal_efficiency, "Signal Efficiency %", color.silver, display=display.data_window)
+
+// ============================================================================
+// DEBUG INFORMATION (OPTIONAL)
+// ============================================================================
+
+// Uncomment for debugging
+// plot(current_green ? 1 : 0, "Current Green", color.lime, display=display.data_window)
+// plot(previous_green ? 1 : 0, "Previous Green", color.green, display=display.data_window)
+// plot(bull_market ? 1 : 0, "Bull Market", color.blue, display=display.data_window)
+// plot(bear_market ? 1 : 0, "Bear Market", color.red, display=display.data_window)
