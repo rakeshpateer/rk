@@ -5,7 +5,7 @@ indicator(title="SPY Strategy - Optimized", shorttitle="SPY-OPT", overlay=true)
 // ============================================================================
 // INPUT CONTROLS - Grouped and optimized
 // ============================================================================
-strategy_enabled = input.bool(true, "🚀 Enable Strategy", group="Main Controls")
+strategy_enabled = input.bool(true, "Enable Strategy", group="Main Controls")
 market_env = input.string("Bull Market Only", "🏢 Market Environment", options=["Bull Market Only", "Bear Market Only", "Both Markets"], group="Main Controls")
 
 enable_ma_filter = input.bool(false, "🔧 Enable MA Filter", group="SPY Filters")
