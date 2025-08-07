@@ -1,5 +1,5 @@
 //@version=6
-indicator(title="SPY Strategy - Optimized", shorttitle="SPY-OPT", overlay=true)
+strategy(title="SPY Strategy - Optimized", shorttitle="SPY-OPT", overlay=true)
 
 
 // ============================================================================
